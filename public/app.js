@@ -20,6 +20,7 @@
     sampleBtn: document.getElementById('sampleBtn'),
     clearBtn: document.getElementById('clearBtn'),
     draftBar: document.getElementById('draftBar'),
+    offlineBar: document.getElementById('offlineBar'),
     schemaInput: document.getElementById('schemaInput'),
     schemaSection: document.getElementById('schemaSection'),
     schemaSampleBtn: document.getElementById('schemaSampleBtn'),
@@ -2015,6 +2016,243 @@
     if (document.visibilityState === 'hidden') flushDraft();
   });
 
+  /* ---------- Service Worker：版本化离线缓存 ----------
+   *
+   * 首次打开时由 SW 预缓存页面 / 样式 / 全部业务脚本 / 本地 Ajv：整套成功
+   * 才提示「可离线使用」，失败逐条说明原因。新版本下载完成后只提示、不自动
+   * 切换，用户点「刷新启用新版本」后才换版（刷新前当前页面继续使用旧版，
+   * 不混用新旧脚本）。缓存里只有静态资源，草稿仍在 localStorage。
+   */
+
+  const OFFLINE_NOTICE_KEY = 'json-three-way-merge:offline:notice';
+  const offline = {
+    reg: null,
+    version: '',
+    waitingSw: null,
+    installingSw: null,
+    failureShown: false,
+    updateConfirmed: false,
+    barHiddenByUser: false,
+  };
+
+  function hideOfflineBar() {
+    els.offlineBar.hidden = true;
+    els.offlineBar.innerHTML = '';
+    els.offlineBar.className = 'offline-bar';
+  }
+
+  // kind：preparing（准备中，蓝）/ ok（可离线，绿）/ update（可更新，黄）/ error（失败，红）
+  function showOfflineBar(kind, message, buttons) {
+    offline.barHiddenByUser = false;
+    els.offlineBar.hidden = false;
+    els.offlineBar.className = 'offline-bar ' + kind;
+    els.offlineBar.innerHTML = '';
+    const msg = document.createElement('span');
+    msg.className = 'offline-msg';
+    msg.textContent = message;
+    els.offlineBar.appendChild(msg);
+    if (buttons && buttons.length > 0) {
+      const wrap = document.createElement('span');
+      wrap.className = 'offline-actions';
+      for (const b of buttons) {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.textContent = b.text;
+        btn.dataset.act = b.act;
+        btn.className = b.primary ? 'primary minor-btn' : 'minor-btn';
+        wrap.appendChild(btn);
+      }
+      els.offlineBar.appendChild(wrap);
+    }
+  }
+
+  function readDismissedNotice() {
+    try {
+      const raw = window.localStorage.getItem(OFFLINE_NOTICE_KEY);
+      return raw ? JSON.parse(raw) : null;
+    } catch {
+      return null;
+    }
+  }
+
+  // 成功 / 失败提示在同一版本下被用户关掉后不再打扰；新版本会再次提示
+  function rememberDismissedNotice(state) {
+    if (!offline.version) return;
+    try {
+      window.localStorage.setItem(OFFLINE_NOTICE_KEY,
+        JSON.stringify({ version: offline.version, state }));
+    } catch {
+      /* 存储被拒时只是不记住，不影响主功能 */
+    }
+  }
+
+  function wasNoticeDismissed(state) {
+    const d = readDismissedNotice();
+    return !!d && d.version === offline.version && d.state === state;
+  }
+
+  function showOfflineReady() {
+    if (wasNoticeDismissed('ok')) return;
+    showOfflineBar('ok',
+      '可离线使用：页面、样式、全部业务脚本与本地 Ajv 已整套缓存完成。'
+      + '此后停止容器或断开网络，仍可重开 http://localhost:8080 继续三方合并、'
+      + 'Schema 校验、草稿恢复与各类导出；草稿仍只保存在本浏览器本地存储中。',
+      [{ act: 'dismiss', text: '知道了' }]);
+  }
+
+  function showOfflineFailure(entries) {
+    offline.failureShown = true;
+    const detail = entries
+      .map((f) => `${String(f.url).replace(/^\//, '')}（${f.reason || '下载失败'}）`)
+      .join('；');
+    showOfflineBar('error',
+      `离线资源准备未完成，未启用离线缓存：${detail}。请确认容器正在运行、网络正常后刷新页面重试；`
+      + '在缓存整套成功前仍可在线使用全部功能，但断网后无法重开页面。',
+      [{ act: 'retry', text: '重新检查', primary: true }, { act: 'dismiss', text: '知道了' }]);
+  }
+
+  function showUpdatePrompt(waitingSw) {
+    offline.waitingSw = waitingSw;
+    offline.barHiddenByUser = false;
+    showOfflineBar('update',
+      '静态资源已更新到新版本并整套缓存完成。刷新页面后启用新版本；刷新前当前页面继续使用旧版本，'
+      + '不会混用新旧脚本，浏览器本地草稿不受影响。',
+      [{ act: 'activate', text: '刷新启用新版本', primary: true }, { act: 'later', text: '稍后' }]);
+  }
+
+  function askController(message) {
+    if (navigator.serviceWorker.controller) {
+      navigator.serviceWorker.controller.postMessage(message);
+    }
+  }
+
+  function trackInstalling(sw) {
+    offline.installingSw = sw;
+    offline.failureShown = false;
+    // 首次安装时短暂提示正在准备（更新安装通常发生在后台，不打扰）
+    if (!navigator.serviceWorker.controller && !offline.barHiddenByUser) {
+      showOfflineBar('preparing',
+        '正在缓存离线资源（页面、样式、业务脚本与本地 Ajv）：只有整套缓存成功才会启用离线使用。');
+    }
+    sw.addEventListener('statechange', () => {
+      if (sw.state === 'installed') {
+        // installed：install 事件成功完成。
+        // - 首次安装（当前无 controller）：成功提示由 PRECACHE_OK 消息驱动，随后激活并接管；
+        // - 更新安装（当前仍由旧 SW 控制）：新版本进入 waiting，提示用户刷新换版
+        if (navigator.serviceWorker.controller && offline.reg && offline.reg.waiting === sw) {
+          showUpdatePrompt(sw);
+        }
+      } else if (sw.state === 'redundant') {
+        // 安装失败（如预缓存不完整）：失败原因通常已由 PRECACHE_FAILED 消息给出
+        if (!navigator.serviceWorker.controller && !offline.failureShown) {
+          showOfflineFailure([{ url: '/sw.js', reason: '新版本安装失败（可能有资源未缓存成功）' }]);
+        }
+      }
+    });
+  }
+
+  function initOfflineCache() {
+    if (!('serviceWorker' in navigator)) {
+      if (window.location.protocol === 'file:') {
+        showOfflineBar('error',
+          '当前页面通过 file:// 直接打开，浏览器在此协议下不支持 Service Worker，无法离线使用。'
+          + '请启动容器后访问 http://localhost:8080。',
+          [{ act: 'dismiss', text: '知道了' }]);
+      }
+      return;
+    }
+
+    navigator.serviceWorker.addEventListener('message', (event) => {
+      const msg = event.data;
+      if (!msg || typeof msg !== 'object') return;
+      if (msg.type === 'PRECACHE_OK') {
+        offline.version = msg.version || offline.version;
+        if (navigator.serviceWorker.controller) {
+          // 更新版本已整套缓存成功
+          if (offline.reg && offline.reg.waiting) showUpdatePrompt(offline.reg.waiting);
+        } else {
+          showOfflineReady();
+        }
+      } else if (msg.type === 'PRECACHE_FAILED') {
+        offline.version = msg.version || offline.version;
+        showOfflineFailure(Array.isArray(msg.failed) ? msg.failed : []);
+      } else if (msg.type === 'CACHE_STATUS') {
+        offline.version = msg.version || offline.version;
+        if (msg.ok) {
+          showOfflineReady();
+        } else {
+          showOfflineFailure(Array.isArray(msg.missing)
+            ? msg.missing.map((m) => (typeof m === 'string' ? { url: m, reason: '缓存缺失' } : m))
+            : []);
+        }
+      }
+    });
+
+    // 用户确认换版：让 waiting SW 接管（activate 会 claim），随后页面自动重载；
+    // 首次安装的 SW 在页面加载后完成 claim 时也会触发此事件，此时改为核对缓存
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      if (offline.updateConfirmed) {
+        window.location.reload();
+      } else {
+        askController({ type: 'CHECK_CACHE' });
+      }
+    });
+
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('/sw.js').then((reg) => {
+        offline.reg = reg;
+
+        if (reg.waiting) {
+          // 加载时已有等待中的新版本
+          if (navigator.serviceWorker.controller) showUpdatePrompt(reg.waiting);
+        }
+        if (reg.installing) trackInstalling(reg.installing);
+        reg.addEventListener('updatefound', () => {
+          if (reg.installing) trackInstalling(reg.installing);
+        });
+
+        if (navigator.serviceWorker.controller) {
+          // 返回用户：由 SW 核对整套缓存是否齐备（被回收时尝试在线补齐）
+          askController({ type: 'CHECK_CACHE' });
+        }
+      }).catch((err) => {
+        showOfflineBar('error',
+          `离线缓存注册失败：${err && err.message ? err.message : String(err)}。`
+          + '当前仍可在线使用全部功能，但无法断网重开页面；请通过 http://localhost:8080 访问后重试。',
+          [{ act: 'dismiss', text: '知道了' }]);
+      });
+    });
+  }
+
+  els.offlineBar.addEventListener('click', (e) => {
+    const btn = e.target.closest('button[data-act]');
+    if (!btn || !els.offlineBar.contains(btn)) return;
+    const act = btn.dataset.act;
+    if (act === 'dismiss') {
+      rememberDismissedNotice('ok');
+      offline.barHiddenByUser = true;
+      hideOfflineBar();
+    } else if (act === 'later') {
+      // 仅本次关闭；下次刷新仍会提示（当前页面继续旧版本）
+      offline.barHiddenByUser = true;
+      hideOfflineBar();
+    } else if (act === 'retry') {
+      hideOfflineBar();
+      offline.failureShown = false;
+      askController({ type: 'CHECK_CACHE' });
+    } else if (act === 'activate') {
+      if (!offline.waitingSw) return;
+      offline.updateConfirmed = true;
+      try {
+        offline.waitingSw.postMessage({ type: 'SKIP_WAITING' });
+      } catch {
+        window.location.reload();
+      }
+      // 兜底：极端情况下 controllerchange 未触发也确保换上新版本
+      setTimeout(() => window.location.reload(), 1500);
+    }
+  });
+
   /* ---------- 事件绑定 ---------- */
 
   els.mergeBtn.addEventListener('click', doMerge);
@@ -2059,6 +2297,8 @@
 
   // 初始渲染一次空 Schema 面板（隐藏状态）
   renderSchemaPanel();
+  // 注册 Service Worker：整套静态资源缓存成功后提示可离线使用
+  initOfflineCache();
   // 检测浏览器本地草稿并提示恢复 / 丢弃（损坏或存储被拒时只说明原因）
   initDraftRecovery();
 })();

@@ -159,6 +159,58 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
   padding: 6px 14px;
 }
 
+/* ---------- 离线缓存状态提示条（Service Worker） ---------- */
+
+.offline-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  border-radius: 6px;
+  padding: 10px 14px;
+  margin: 12px 0;
+  font-size: 13px;
+}
+
+.offline-bar.ok {
+  border: 1px solid var(--ok);
+  background: #ddf4e4;
+}
+
+.offline-bar.preparing {
+  border: 1px solid var(--accent);
+  background: #ddf4ff;
+}
+
+.offline-bar.update {
+  border: 1px solid #d4a72c;
+  background: var(--warn-bg);
+}
+
+.offline-bar.error {
+  border: 1px solid var(--danger);
+  background: #ffebe9;
+  color: var(--danger);
+}
+
+.offline-bar .offline-msg {
+  flex: 1 1 320px;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.offline-bar .offline-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: nowrap;
+}
+
+.offline-bar button.minor-btn {
+  padding: 6px 14px;
+}
+
 .status-bar {
   background: #ddf4e4;
   border: 1px solid var(--ok);

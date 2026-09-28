@@ -24,7 +24,7 @@ WORKDIR /app
 COPY package.json package-lock.json* ./
 RUN npm ci --omit=dev && npm cache clean --force
 
-COPY server.js ./
+COPY server.js server-assets.js ./
 COPY lib ./lib
 COPY public ./public
 # 浏览器端使用的 Ajv 8（Draft 2020-12）本地打包产物
