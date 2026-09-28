@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>JSON 三方合并工具</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <header>
+    <h1>JSON 三方合并工具</h1>
+    <p class="subtitle">粘贴基线、我的版本与对方版本：对象逐键递归合并，数组整体比较，区分字段缺失与 null；冲突逐项选择后方可导出完整 JSON 或 RFC 6902 补丁，并生成标注每处改动来源的归因清单；也可勾选顶层键，下载含本地 $ref 引用闭包的子文档，预览删除顶层键后经本地 $ref 依赖受影响的其他键，或将某个顶层键改名后导出完整 JSON（同步改写指向旧键名的本地 $ref）。已选冲突还可下载为选择记录，重新合并后导入预览并一次复用相同冲突的选边。编辑或选边会自动在浏览器本地保存合并草稿，刷新或重开页面时可恢复或丢弃；恢复时重新解析合并，仅当三方文本与冲突三值均匹配才重放选边，否则只恢复文本并要求重新合并。</p>
+  </header>
+
+  <main>
+    <section class="inputs">
+      <div class="input-col">
+        <label for="base">基线（Base）</label>
+        <textarea id="base" spellcheck="false" placeholder='粘贴共同祖先版本的 JSON，例如 {"a": 1}'></textarea>
+      </div>
+      <div class="input-col">
+        <label for="mine">我的版本（Mine）</label>
+        <textarea id="mine" spellcheck="false" placeholder="粘贴我这侧修改后的 JSON"></textarea>
+      </div>
+      <div class="input-col">
+        <label for="theirs">对方版本（Theirs）</label>
+        <textarea id="theirs" spellcheck="false" placeholder="粘贴对方修改后的 JSON"></textarea>
+      </div>
+    </section>
+
+    <div class="actions">
+      <button id="mergeBtn" class="primary">开始合并</button>
+      <button id="sampleBtn" type="button">填入示例</button>
+      <button id="clearBtn" type="button">清空</button>
+    </div>
+
+    <div id="draftBar" class="draft-bar" hidden></div>
+
+    <details id="schemaSection" class="schema-section">
+      <summary>JSON Schema 校验（可选，Draft 2020-12，仅支持文档内 <code>$ref</code>，不请求远程引用）</summary>
+      <div class="schema-head">
+        <label for="schemaInput">粘贴校验合并结果的 Schema：</label>
+        <button id="schemaSampleBtn" type="button" class="minor">填入示例 Schema</button>
+      </div>
+      <textarea id="schemaInput" spellcheck="false" class="schema-input" placeholder='可选。例如 {"type":"object","required":["name","version"],"additionalProperties":false}'></textarea>
+      <p class="hint">留空则不校验，沿用原有导出规则；填写后只有校验通过才允许导出完整 JSON、复制结果和导出补丁。编辑 Schema 会立即重新编译校验。</p>
+    </details>
+
+    <div id="error" class="error" role="alert" hidden></div>
+    <div id="staleNote" class="note" hidden>输入内容已修改，请重新点击「开始合并」。</div>
+    <div id="schemaValidation" class="schema-validation" aria-live="polite" hidden></div>
+
+    <section id="resultSection" hidden>
+      <div class="status-bar">
+        <span id="statusText"></span>
+      </div>
+
+      <div id="conflicts"></div>
+
+      <h2>合并结果</h2>
+      <p id="resultNote" class="note"></p>
+
+      <pre id="result" class="result" aria-label="合并结果 JSON"></pre>
+
+      <div class="actions">
+        <button id="exportBtn" class="primary" disabled>导出 merged.json</button>
+        <button id="copyBtn" disabled>复制结果</button>
+        <button id="patchBtn" disabled>导出 patch.json</button>
+        <span id="exportHint" class="hint"></span>
+      </div>
+
+      <section id="attrSection" class="attr-section" hidden>
+        <div class="attr-head">
+          <h2>变更归因清单</h2>
+          <div class="attr-tools">
+            <label for="attrFilter">按来源筛选：</label>
+            <select id="attrFilter"></select>
+            <button id="attrBtn" type="button" class="minor" disabled>下载归因清单 JSON</button>
+          </div>
+        </div>
+        <p id="attrNote" class="hint"></p>
+        <div id="attrList"></div>
+      </section>
+
+      <section id="choiceSection" class="ref-section choice-section" hidden>
+        <div class="ref-head">
+          <h2>冲突选择记录（跨轮复用）</h2>
+          <div class="choice-tools">
+            <button id="choiceBtn" type="button" class="minor" disabled>下载选择记录</button>
+            <label class="choice-file-label" for="choiceFile">
+              导入记录…
+              <input id="choiceFile" type="file" accept="application/json,.json">
+            </label>
+          </div>
+        </div>
+        <p id="choiceNote" class="hint"></p>
+        <div id="choicePreview"></div>
+      </section>
+
+      <section id="refSection" class="ref-section" hidden>
+        <div class="ref-head">
+          <h2>引用闭包子文档导出</h2>
+          <button id="refBtn" type="button" class="minor" disabled>下载子文档 JSON</button>
+        </div>
+        <p id="refNote" class="hint"></p>
+        <div id="refKeys" class="ref-keys"></div>
+        <ul id="refErrors" class="sv-errors" hidden></ul>
+      </section>
+
+      <section id="delSection" class="ref-section del-section" hidden>
+        <div class="ref-head">
+          <h2>删除影响预览</h2>
+        </div>
+        <p id="delNote" class="hint"></p>
+        <div id="delKeys" class="ref-keys"></div>
+        <ul id="delErrors" class="sv-errors" hidden></ul>
+        <div id="delImpact"></div>
+      </section>
+
+      <section id="renSection" class="ref-section ren-section" hidden>
+        <div class="ref-head">
+          <h2>顶层键改名导出</h2>
+          <button id="renBtn" type="button" class="minor" disabled>下载改名后 JSON</button>
+        </div>
+        <p id="renNote" class="hint"></p>
+        <div class="ren-controls">
+          <label for="renKey">要改名的顶层键：</label>
+          <select id="renKey"></select>
+          <label for="renName">新键名：</label>
+          <input id="renName" type="text" spellcheck="false" placeholder="可为空字符串">
+        </div>
+        <ul id="renErrors" class="sv-errors" hidden></ul>
+        <pre id="renPreview" class="result ren-preview" hidden></pre>
+      </section>
+    </section>
+  </main>
+
+  <script src="/vendor/ajv2020.js"></script>
+  <script src="/lib/merge.js"></script>
+  <script src="/lib/patch.js"></script>
+  <script src="/lib/schema.js"></script>
+  <script src="/lib/attribution.js"></script>
+  <script src="/lib/suggest.js"></script>
+  <script src="/lib/refclosure.js"></script>
+  <script src="/lib/delimpact.js"></script>
+  <script src="/lib/keyrename.js"></script>
+  <script src="/lib/choices.js"></script>
+  <script src="/lib/draft.js"></script>
+  <script src="/app.js"></script>
+</body>
+</html>

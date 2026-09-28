@@ -1,0 +1,10 @@
+services:
+  json-merge:
+    build: .
+    image: json-three-way-merge
+    container_name: json-three-way-merge
+    ports:
+      - "8080:8080"
+    environment:
+      PORT: 8080
+    restart: unless-stopped

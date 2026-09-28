@@ -1,0 +1,21 @@
+{
+  "name": "json-three-way-merge",
+  "version": "1.0.0",
+  "private": true,
+  "description": "JSON 三方合并网页工具（Node.js + 原生 HTML/JavaScript，Ajv 8 提供浏览器端 Schema 校验）",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "test": "node --test test/",
+    "build:vendor": "esbuild vendor-src/ajv2020-entry.cjs --bundle --format=iife --global-name=Ajv2020 --outfile=vendor/ajv2020.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "ajv": "^8.20.0"
+  },
+  "devDependencies": {
+    "esbuild": "^0.28.2"
+  }
+}
