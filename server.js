@@ -23,8 +23,11 @@ const MIME = {
   '.ico': 'image/x-icon',
 };
 
-function send(res, status, body, contentType) {
-  res.writeHead(status, { 'Content-Type': contentType || 'text/plain; charset=utf-8' });
+function send(res, status, body, contentType, extraHeaders) {
+  res.writeHead(status, {
+    'Content-Type': contentType || 'text/plain; charset=utf-8',
+    ...(extraHeaders || {}),
+  });
   res.end(body);
 }
 
@@ -58,10 +61,23 @@ const server = http.createServer((req, res) => {
 
   fs.readFile(filePath, (err, data) => {
     if (err) return send(res, 404, 'Not Found');
-    send(res, 200, data, MIME[path.extname(filePath).toLowerCase()] || 'application/octet-stream');
+    // HTML 与 Service Worker 不走浏览器 HTTP 缓存：
+    // SW 字节检查必须每次回源，才能在静态资源升级后发现新版本；
+    // HTML 不缓存可保证在线打开时拿到当前版本的文档。
+    // 其余静态资源（脚本 / 样式 / Ajv）由 Service Worker 按版本化缓存管理。
+    const ext = path.extname(filePath).toLowerCase();
+    const extra = (ext === '.html' || pathname === '/sw.js')
+      ? { 'Cache-Control': 'no-cache' }
+      : undefined;
+    send(res, 200, data, MIME[ext] || 'application/octet-stream', extra);
   });
 });
 
-server.listen(PORT, () => {
-  console.log(`JSON 三方合并工具已启动：http://localhost:${PORT}`);
-});
+// 直接运行（node server.js / npm start）时启动；被测试 require 时只导出
+if (require.main === module) {
+  server.listen(PORT, () => {
+    console.log(`JSON 三方合并工具已启动：http://localhost:${PORT}`);
+  });
+}
+
+module.exports = { server };

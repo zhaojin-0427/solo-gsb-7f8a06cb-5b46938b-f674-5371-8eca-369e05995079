@@ -27,6 +27,66 @@ header h1 { margin: 0 0 6px; font-size: 22px; }
 
 .subtitle { margin: 0; font-size: 13px; color: #c9d1d9; }
 
+/* ---------- 离线续用状态徽标（深色页头内） ---------- */
+
+.offline-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 10px 0 4px;
+  padding: 7px 12px;
+  border-radius: 6px;
+  font-size: 13px;
+  line-height: 1.5;
+  border: 1px solid transparent;
+}
+
+.offline-status .os-dot { flex: none; }
+
+.offline-status.preparing {
+  background: rgba(9, 105, 218, 0.18);
+  border-color: rgba(9, 105, 218, 0.55);
+  color: #c6ddfa;
+}
+
+.offline-status.ready {
+  background: rgba(26, 127, 55, 0.22);
+  border-color: rgba(63, 185, 80, 0.55);
+  color: #abefbc;
+}
+
+.offline-status.updating {
+  background: rgba(9, 105, 218, 0.18);
+  border-color: rgba(9, 105, 218, 0.55);
+  color: #c6ddfa;
+}
+
+.offline-status.error {
+  background: rgba(207, 34, 46, 0.2);
+  border-color: rgba(248, 81, 73, 0.6);
+  color: #ffd2cc;
+}
+
+.offline-status.unsupported {
+  background: rgba(139, 148, 158, 0.18);
+  border-color: rgba(139, 148, 158, 0.45);
+  color: #d0d7de;
+}
+
+.offline-status .os-retry {
+  flex: none;
+  font-size: 12px;
+  padding: 3px 10px;
+  border-radius: 5px;
+  background: rgba(255, 255, 255, 0.12);
+  border-color: rgba(255, 255, 255, 0.35);
+  color: inherit;
+}
+
+.offline-status .os-retry:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.22);
+}
+
 main {
   max-width: 1200px;
   margin: 0 auto;

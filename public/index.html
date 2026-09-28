@@ -9,6 +9,7 @@
 <body>
   <header>
     <h1>JSON 三方合并工具</h1>
+    <div id="offlineStatus" class="offline-status preparing" role="status" aria-live="polite"></div>
     <p class="subtitle">粘贴基线、我的版本与对方版本：对象逐键递归合并，数组整体比较，区分字段缺失与 null；冲突逐项选择后方可导出完整 JSON 或 RFC 6902 补丁，并生成标注每处改动来源的归因清单；也可勾选顶层键，下载含本地 $ref 引用闭包的子文档，预览删除顶层键后经本地 $ref 依赖受影响的其他键，或将某个顶层键改名后导出完整 JSON（同步改写指向旧键名的本地 $ref）。已选冲突还可下载为选择记录，重新合并后导入预览并一次复用相同冲突的选边。编辑或选边会自动在浏览器本地保存合并草稿，刷新或重开页面时可恢复或丢弃；恢复时重新解析合并，仅当三方文本与冲突三值均匹配才重放选边，否则只恢复文本并要求重新合并。</p>
   </header>
 
@@ -146,6 +147,7 @@
   <script src="/lib/keyrename.js"></script>
   <script src="/lib/choices.js"></script>
   <script src="/lib/draft.js"></script>
+  <script src="/offline.js"></script>
   <script src="/app.js"></script>
 </body>
 </html>
